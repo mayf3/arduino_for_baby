@@ -2,93 +2,129 @@
 #include <LiquidCrystal_I2C.h>
 #include <IRremote.h>
 
-const char title[] = "Fan Level:";
-const int tim = 250;
-const int irReceiverPin = 7;
+// 定义LCD显示屏的地址和尺寸
+const int kLcdAddr = 0x27;
+const int kLcdCols = 16;
+const int kLcdRows = 2;
+const int kMaxOPerRow = 5;
+const char kTitle[] = "Fan Level:";
 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+// 定义红外接收器连接的引脚
+const int kIrReceiverPin = 7;
 
-IRrecv irrecv(irReceiverPin);
-decode_results results;
+// 定义电机控制引脚
+const int kMotorIn1 = 9;
+const int kMotorIn2 = 10;
+const int kMaxFanLevel = 250;
+const int kFanLevelFactor = 30;
 
-int last_number = -1;
+// 定义红外码与数字的映射
+enum class IrCodes {
+  kIrCode0 = 0xFF6897,
+  kIrCode1 = 0xFF30CF,
+  kIrCode2 = 0xFF18E7,
+  kIrCode3 = 0xFF7A85,
+  kIrCode4 = 0xFF10EF,
+  kIrCode5 = 0xFF38C7,
+  kIrCode6 = 0xFF5AA5,
+  kIrCode7 = 0xFF42BD,
+  kIrCode8 = 0xFF4AB5,
+  kIrCode9 = 0xFF52AD
+};
 
-const int motorIn1 = 9;
-const int motorIn2 = 10;
+const int kDelayTime = 250;
 
-int get_number(unsigned long result) {
-  Serial.print("result:");
-  Serial.println(result);
-if (result == 0xFF6897) { return 0; }
-if (result == 0xFF30CF) { return 1; }
-if (result == 0xFF18E7) { return 2; }
-if (result == 0xFF7A85) { return 3; }
-if (result == 0xFF10EF) { return 4; }
-if (result == 0xFF38C7) { return 5; }
-if (result == 0xFF5AA5) { return 6; }
-if (result == 0xFF42BD) { return 7; }
-if (result == 0xFF4AB5) { return 8; }
-if (result == 0xFF52AD) { return 9; }
-return -1;
+// 初始化LCD显示屏
+LiquidCrystal_I2C g_lcd(kLcdAddr, kLcdCols, kLcdRows);
+
+// 初始化红外接收器
+IRrecv g_irrecv(kIrReceiverPin);
+
+// 用于存储上一次接收到的数字
+int g_fan_level = -1;
+
+// 函数：根据红外信号的值返回对应的数字
+int GetNumber(int value) {
+  switch (value) {
+    case kIrCode0: return 0;
+    case kIrCode1: return 1;
+    case kIrCode2: return 2;
+    case kIrCode3: return 3;
+    case kIrCode4: return 4;
+    case kIrCode5: return 5;
+    case kIrCode6: return 6;
+    case kIrCode7: return 7;
+    case kIrCode8: return 8;
+    case kIrCode9: return 9;
+    default: return -1;
+  }
 }
 
+// setup函数：在程序开始时执行一次
 void setup() {
-  // lcd 
-  lcd.init();
-  lcd.backlight();
-
-  // debug
+  g_lcd.init();
+  g_lcd.backlight();
   Serial.begin(9600);
-  
-  // irrecv
-  irrecv.enableIRIn();
-
-  // fan
-  pinMode(motorIn1, OUTPUT);
-  pinMode(motorIn2, OUTPUT);
+  g_irrecv.enableIRIn();
+  pinMode(kMotorIn1, OUTPUT);
+  pinMode(kMotorIn2, OUTPUT);
 }
 
+// loop函数：在程序中不断循环执行
 void loop() {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(title);
-  if (irrecv.decode(&results)) {
+  g_lcd.clear();
+  g_lcd.setCursor(0, 0);
+  g_lcd.print(kTitle);
+  decode_results results;
+  if (g_irrecv.decode(&results)) {
     Serial.print("irCode: ");
     Serial.print(results.value, HEX);
     Serial.print(", bits: ");
     Serial.println(results.bits);
-    irrecv.resume();
+    g_irrecv.resume();
   }
-  const int number = get_number(results.value);
-  if (number != -1) { last_number = number; }
-  if (last_number != -1) {
-    int print_number = last_number;
-    if (last_number > 5) {
-      print_number = last_number - 5;
-      lcd.setCursor(0, 0);
-      lcd.print(title);
-      for (int i = 0; i < 16 - strlen(title) - 5; i++) {
-        lcd.print(' ');
-      }
-      for (int i = 0; i < 5; i++) {
-        lcd.print('o');
-      }
-    }
-    lcd.setCursor(0, 1);
-    lcd.print(last_number);
-    for (int i = 0; i < 15 - print_number; i++) {
-      lcd.print(' ');
-    }
-    for (int i = 0; i < print_number; i++) {
-      lcd.print('o');
-    }
-    analogWrite(motorIn1, 0);
-    int fan_number = 30 * last_number;
-    if (fan_number > 250) { fan_number = 250;}
-    analogWrite(motorIn2, fan_number);
-  } else {
-    lcd.setCursor(0, 1);
-    lcd.print("-1");
+  const int number = GetNumber(results.value);
+  if (number != -1) {
+    g_fan_level = number;
   }
-  delay(600);
+  DisplayFanLevel();
+  delay(kDelayTime);
+}
+
+void PrintSpaceAndO(int total_rest_number, int number_o) {
+  for (int i = 0; i < total_rest_number - number_o; i++) {
+    g_lcd.print(' ');
+  }
+  for (int i = 0; i < number_o; i++) {
+    g_lcd.print('o');
+  }
+}
+
+// 显示风扇级别
+void DisplayFanLevel() {
+  if (g_fan_level == -1) {
+    g_lcd.setCursor(0, 1);
+    g_lcd.print("-1");
+    return;
+  }
+  int second_row_print_number = g_fan_level;
+  // print first row with 'ooooo'
+  if (g_fan_level > kMaxOPerRow) {
+    second_row_print_number = g_fan_level - kMaxOPerRow;
+    PrintSpaceAndO(kLcdCols - strlen(kTitle), kMaxOPerRow);
+  }
+  // print second row
+  g_lcd.setCursor(0, 1);
+  g_lcd.print(g_fan_level);
+  PrintSpaceAndO(kLcdCols - 1, second_row_print_number);
+  ControlFan();
+}
+
+// 控制风扇速度
+void ControlFan() {
+  int fan_speed = kFanLevelFactor * g_fan_level;
+  if (fan_speed > kMaxFanLevel) {
+    fan_speed = kMaxFanLevel;
+  }
+  analogWrite(kMotorIn2, fan_speed);
 }
