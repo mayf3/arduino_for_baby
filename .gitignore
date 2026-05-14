@@ -1,1 +1,9 @@
 .DS_Store
+# Environment files (security)
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+# Node.js
+node_modules/
